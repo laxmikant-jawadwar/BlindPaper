@@ -156,6 +156,43 @@ curl -X POST http://127.0.0.1:8000/api/questions/validate `
       }
     ]
   }'
+
+# Question paper PDF export & download
+curl -X POST http://127.0.0.1:8000/api/questions/export-pdf `
+  -H "Content-Type: application/json" `
+  -d '{
+    "subject_name": "Data Structures",
+    "college_name": "Department of Computer Science & Engineering",
+    "exam_name": "End Semester Examination",
+    "semester": "Semester IV",
+    "paper_code": "CS-401",
+    "duration": "3 Hours",
+    "total_marks": 20,
+    "question_count": 2,
+    "instructions": [
+      "Answer all questions carefully.",
+      "Figures to the right indicate full marks."
+    ],
+    "questions": [
+      {
+        "question_id": 1,
+        "question_text": "Explain the implementation of circular queues using arrays.",
+        "question_type": "Short Answer",
+        "unit_or_topic": "Unit 1: Stacks and Queues",
+        "marks": 10,
+        "difficulty": "medium"
+      },
+      {
+        "question_id": 2,
+        "question_text": "Describe binary tree traversals including inorder and preorder.",
+        "question_type": "Long Answer",
+        "unit_or_topic": "Unit 2: Trees and Graphs",
+        "marks": 10,
+        "difficulty": "medium"
+      }
+    ]
+  }' `
+  --output question_paper.pdf
 ```
 
 ### 3. Run Automated Tests
@@ -171,5 +208,5 @@ pytest
 - [x] **Phase 2**: Syllabus PDF upload and text extraction using PyMuPDF.
 - [x] **Phase 3**: Examination configuration and AI question generation.
 - [x] **Phase 4**: Syllabus relevance, duplicate detection, and marks validation.
-- [ ] **Phase 5**: Question paper PDF export.
+- [x] **Phase 5**: Question paper PDF export.
 - [ ] **Phase 6**: MongoDB integration and React frontend.

@@ -1,4 +1,4 @@
-"""Pydantic schemas for request and response data validation."""
+from app.schemas.export import PaperExportRequest
 from app.schemas.health import HealthResponse, WelcomeResponse
 from app.schemas.question import (
     QuestionGenerateRequest,
@@ -28,4 +28,5 @@ __all__ = [
     "UnitCoverageResult",
     "ValidationRequest",
     "ValidationResponse",
+    "PaperExportRequest",
 ]

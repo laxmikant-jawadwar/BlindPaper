@@ -19,6 +19,11 @@ from app.services.syllabus_service import (
     SyllabusService,
     syllabus_service,
 )
+from app.services.pdf_service import (
+    PDFExportError,
+    PDFExportService,
+    pdf_export_service,
+)
 from app.services.validation_service import (
     ValidationService,
     validation_service,
@@ -40,4 +45,7 @@ __all__ = [
     "distribute_marks",
     "ValidationService",
     "validation_service",
+    "PDFExportService",
+    "pdf_export_service",
+    "PDFExportError",
 ]
