@@ -1,0 +1,10 @@
+
+/* Global reset and page defaults are defined in App.css. */
+html {
+  min-width: 320px;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
