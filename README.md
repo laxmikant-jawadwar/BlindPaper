@@ -114,6 +114,19 @@ curl http://127.0.0.1:8000/api/health
 
 # Syllabus PDF upload and text extraction
 curl -X POST http://127.0.0.1:8000/api/syllabus/upload -F "file=@path/to/syllabus.pdf"
+
+# Question paper generation (demo or LLM mode)
+curl -X POST http://127.0.0.1:8000/api/questions/generate `
+  -H "Content-Type: application/json" `
+  -d '{
+    "subject_name": "Data Structures",
+    "syllabus_text": "Unit 1: Stacks and Queues. Unit 2: Trees and Graphs.",
+    "selected_units": ["Unit 1: Stacks and Queues", "Unit 2: Trees and Graphs"],
+    "total_marks": 20,
+    "question_count": 4,
+    "question_types": ["Short Answer", "Long Answer"],
+    "difficulty": "medium"
+  }'
 ```
 
 ### 3. Run Automated Tests
@@ -127,7 +140,7 @@ pytest
 ## Incremental Roadmap
 - [x] **Phase 1**: Basic FastAPI backend setup and health endpoints.
 - [x] **Phase 2**: Syllabus PDF upload and text extraction using PyMuPDF.
-- [ ] **Phase 3**: Examination configuration and AI question generation.
+- [x] **Phase 3**: Examination configuration and AI question generation.
 - [ ] **Phase 4**: Syllabus relevance, duplicate detection, and marks validation.
 - [ ] **Phase 5**: Question paper PDF export.
 - [ ] **Phase 6**: MongoDB integration and React frontend.
