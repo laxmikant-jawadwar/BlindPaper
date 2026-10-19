@@ -6,6 +6,14 @@ from app.schemas.question import (
     QuestionItem,
 )
 from app.schemas.syllabus import SyllabusExtractResponse
+from app.schemas.validation import (
+    DuplicatePair,
+    MarksValidationResult,
+    QuestionRelevance,
+    UnitCoverageResult,
+    ValidationRequest,
+    ValidationResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -14,4 +22,10 @@ __all__ = [
     "QuestionItem",
     "QuestionGenerateRequest",
     "QuestionGenerateResponse",
+    "QuestionRelevance",
+    "DuplicatePair",
+    "MarksValidationResult",
+    "UnitCoverageResult",
+    "ValidationRequest",
+    "ValidationResponse",
 ]

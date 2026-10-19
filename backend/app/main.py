@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.health import router as health_router
 from app.api.routes.questions import router as questions_router
 from app.api.routes.syllabus import router as syllabus_router
+from app.api.routes.validation import router as validation_router
 from app.core.config import settings
 from app.schemas.health import WelcomeResponse
 
@@ -33,6 +34,7 @@ def create_application() -> FastAPI:
     app.include_router(health_router)
     app.include_router(syllabus_router)
     app.include_router(questions_router)
+    app.include_router(validation_router)
 
     # Root welcome endpoint
     @app.get(

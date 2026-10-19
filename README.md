@@ -127,6 +127,35 @@ curl -X POST http://127.0.0.1:8000/api/questions/generate `
     "question_types": ["Short Answer", "Long Answer"],
     "difficulty": "medium"
   }'
+
+# Question paper validation and quality assurance
+curl -X POST http://127.0.0.1:8000/api/questions/validate `
+  -H "Content-Type: application/json" `
+  -d '{
+    "subject_name": "Data Structures",
+    "syllabus_text": "Unit 1: Stacks and Queues. Unit 2: Trees and Graphs.",
+    "selected_units": ["Unit 1: Stacks and Queues", "Unit 2: Trees and Graphs"],
+    "total_marks": 20,
+    "question_count": 2,
+    "questions": [
+      {
+        "question_id": 1,
+        "question_text": "Explain the implementation of circular queues using arrays.",
+        "question_type": "Short Answer",
+        "unit_or_topic": "Unit 1: Stacks and Queues",
+        "marks": 10,
+        "difficulty": "medium"
+      },
+      {
+        "question_id": 2,
+        "question_text": "Describe binary tree traversals including inorder and preorder.",
+        "question_type": "Long Answer",
+        "unit_or_topic": "Unit 2: Trees and Graphs",
+        "marks": 10,
+        "difficulty": "medium"
+      }
+    ]
+  }'
 ```
 
 ### 3. Run Automated Tests
@@ -141,6 +170,6 @@ pytest
 - [x] **Phase 1**: Basic FastAPI backend setup and health endpoints.
 - [x] **Phase 2**: Syllabus PDF upload and text extraction using PyMuPDF.
 - [x] **Phase 3**: Examination configuration and AI question generation.
-- [ ] **Phase 4**: Syllabus relevance, duplicate detection, and marks validation.
+- [x] **Phase 4**: Syllabus relevance, duplicate detection, and marks validation.
 - [ ] **Phase 5**: Question paper PDF export.
 - [ ] **Phase 6**: MongoDB integration and React frontend.

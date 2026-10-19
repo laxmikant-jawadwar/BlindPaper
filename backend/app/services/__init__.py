@@ -19,6 +19,10 @@ from app.services.syllabus_service import (
     SyllabusService,
     syllabus_service,
 )
+from app.services.validation_service import (
+    ValidationService,
+    validation_service,
+)
 
 __all__ = [
     "SyllabusService",
@@ -34,4 +38,6 @@ __all__ = [
     "SyllabusMismatchError",
     "LLMGenerationError",
     "distribute_marks",
+    "ValidationService",
+    "validation_service",
 ]
