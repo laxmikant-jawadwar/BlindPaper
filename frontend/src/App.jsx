@@ -1,49 +1,47 @@
-
 import { useState } from "react";
 import "./App.css";
 
-type Page = "home" | "login" | "register" | "admin";
-
 function App() {
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState("home");
 
-  const goTo = (nextPage: Page) => {
+  const goTo = (nextPage) => {
     setPage(nextPage);
     window.scrollTo(0, 0);
   };
+
   if (page === "admin") {
-  return (
-    <div className="auth-page">
-      <div className="auth-card admin-card">
-        <div className="brand-mark">B</div>
-        <h1>Admin Dashboard</h1>
-        <p>Welcome to the BlindPaper administration panel.</p>
+    return (
+      <div className="auth-page">
+        <div className="auth-card admin-card">
+          <div className="brand-mark">B</div>
+          <h1>Admin Dashboard</h1>
+          <p>Welcome to the BlindPaper administration panel.</p>
 
-        <div className="admin-option">
-          <strong>👥 User Management</strong>
-          <span>Manage registered users.</span>
+          <div className="admin-option">
+            <strong>👥 User Management</strong>
+            <span>Manage registered users.</span>
+          </div>
+
+          <div className="admin-option">
+            <strong>📄 Question Papers</strong>
+            <span>Review generated question papers.</span>
+          </div>
+
+          <div className="admin-option">
+            <strong>📚 Syllabus Management</strong>
+            <span>Review uploaded syllabi.</span>
+          </div>
+
+          <button
+            className="primary-button full-button"
+            onClick={() => goTo("login")}
+          >
+            Back to Login
+          </button>
         </div>
-
-        <div className="admin-option">
-          <strong>📄 Question Papers</strong>
-          <span>Review generated question papers.</span>
-        </div>
-
-        <div className="admin-option">
-          <strong>📚 Syllabus Management</strong>
-          <span>Review uploaded syllabi.</span>
-        </div>
-
-        <button
-          className="primary-button full-button"
-          onClick={() => goTo("login")}
-        >
-          Back to Login
-        </button>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   if (page === "login" || page === "register") {
     const isLogin = page === "login";
@@ -105,15 +103,16 @@ function App() {
               {isLogin ? "Login" : "Create Account"}
             </button>
           </form>
+
           {isLogin && (
-  <button
-    type="button"
-    className="admin-login-button"
-    onClick={() => goTo("admin")}
-  >
-    Login as Admin →
-  </button>
-)}
+            <button
+              type="button"
+              className="admin-login-button"
+              onClick={() => goTo("admin")}
+            >
+              Login as Admin →
+            </button>
+          )}
 
           <div className="auth-switch">
             {isLogin ? "Don't have an account?" : "Already have an account?"}
@@ -374,15 +373,7 @@ function App() {
   );
 }
 
-function Feature({
-  icon,
-  title,
-  description,
-}: {
-  icon: string;
-  title: string;
-  description: string;
-}) {
+function Feature({ icon, title, description }) {
   return (
     <article className="feature-card">
       <div className="feature-icon">{icon}</div>
@@ -392,15 +383,7 @@ function Feature({
   );
 }
 
-function Workflow({
-  number,
-  title,
-  description,
-}: {
-  number: string;
-  title: string;
-  description: string;
-}) {
+function Workflow({ number, title, description }) {
   return (
     <article className="workflow-card">
       <span className="workflow-number">{number}</span>
