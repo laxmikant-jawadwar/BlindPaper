@@ -1,71 +1,33 @@
 import { useState } from "react";
-import { generateQuestionPaper, validateQuestionPaper } from "../api";
-
-const ALL_BLOOMS = [
-  "Remember",
-  "Understand",
-  "Apply",
-  "Analyze",
-  "Evaluate",
-  "Create",
-];
-
-const QUESTION_TYPES = ["Short Answer", "Long Answer", "MCQ"];
+import { generateQuestionPaper } from "../api";
 
 export function PaperConfig({
   goTo,
-  syllabus,
-  configState,
-  onConfigChange,
+  uploadedSyllabus,
   onGenerationComplete,
 }) {
-  const units = syllabus?.structured_syllabus?.units || [];
-  const defaultUnitNames = units.map((u) => u.unit_name);
+  const defaultUnits = uploadedSyllabus?.units || [
+    "Unit 1: Fundamentals",
+    "Unit 2: Core Concepts",
+    "Unit 3: Applications",
+  ];
 
-  // Form State, initialized from saved config or syllabus defaults
   const [subjectName, setSubjectName] = useState(
-    configState?.subject_name || syllabus?.subject_name || "Data Structures"
+    uploadedSyllabus?.subject_name || "Data Structures"
   );
-  const [selectedUnits, setSelectedUnits] = useState(
-    configState?.selected_units || defaultUnitNames
-  );
-  const [totalMarks, setTotalMarks] = useState(configState?.total_marks || 25);
-  const [questionCount, setQuestionCount] = useState(
-    configState?.question_count || 5
-  );
-  const [questionTypes, setQuestionTypes] = useState(
-    configState?.question_types || ["Short Answer", "Long Answer"]
-  );
-  const [difficulty, setDifficulty] = useState(
-    configState?.difficulty || "medium"
-  );
-  const [selectedBlooms, setSelectedBlooms] = useState(
-    configState?.blooms_levels || ["Understand", "Apply", "Analyze"]
-  );
-
-  // Optional exam header details
-  const [collegeName, setCollegeName] = useState(
-    configState?.college_name || "Department of Computer Science & Engineering"
-  );
-  const [examName, setExamName] = useState(
-    configState?.exam_name || "Mid-Semester Examination 2026"
-  );
-  const [semester, setSemester] = useState(configState?.semester || "Semester V");
-  const [paperCode, setPaperCode] = useState(configState?.paper_code || "CS-302");
-  const [duration, setDuration] = useState(configState?.duration || "1.5 Hours");
-  const [instructions, setInstructions] = useState(
-    configState?.instructions || [
-      "1. Answer all questions.",
-      "2. Figures to the right indicate full marks.",
-      "3. Use of non-programmable calculator is permitted.",
-    ]
-  );
-  const [showMetadata, setShowMetadata] = useState(true);
+  const [selectedUnits, setSelectedUnits] = useState(defaultUnits);
+  const [totalMarks, setTotalMarks] = useState(25);
+  const [questionCount, setQuestionCount] = useState(5);
+  const [questionTypes, setQuestionTypes] = useState([
+    "Short Answer",
+    "Long Answer",
+  ]);
+  const [difficulty, setDifficulty] = useState("medium");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
-  // Unit selection helpers
   const handleToggleUnit = (unitName) => {
     setSelectedUnits((prev) =>
       prev.includes(unitName)
@@ -74,15 +36,6 @@ export function PaperConfig({
     );
   };
 
-  const handleSelectAllUnits = () => {
-    setSelectedUnits(defaultUnitNames);
-  };
-
-  const handleDeselectAllUnits = () => {
-    setSelectedUnits([]);
-  };
-
-  // Question type helpers
   const handleToggleType = (type) => {
     setQuestionTypes((prev) => {
       const next = prev.includes(type)
@@ -92,27 +45,17 @@ export function PaperConfig({
     });
   };
 
-  // Bloom's level helpers
-  const handleToggleBloom = (level) => {
-    setSelectedBlooms((prev) =>
-      prev.includes(level)
-        ? prev.filter((l) => l !== level)
-        : [...prev, level]
-    );
-  };
-
-  // Generate Handler
   const handleGenerate = async () => {
     setError(null);
+    setSuccessMsg(null);
 
-    // Validation
     if (!subjectName.trim()) {
-      setError("Please specify a course/subject name.");
+      setError("Please provide a subject or course name.");
       return;
     }
 
     if (selectedUnits.length === 0) {
-      setError("Please select at least one syllabus unit.");
+      setError("Please select at least one syllabus unit to include.");
       return;
     }
 
@@ -121,183 +64,213 @@ export function PaperConfig({
       return;
     }
 
-    if (totalMarks < questionCount) {
+    if (Number(totalMarks) < Number(questionCount)) {
       setError(
-        `Total marks (${totalMarks}) cannot be less than question count (${questionCount}). Each question must carry at least 1 mark.`
+        `Total marks (${totalMarks}) must be greater than or equal to question count (${questionCount}). Each question must carry at least 1 mark.`
       );
       return;
     }
 
-    const currentConfig = {
-      subject_name: subjectName.trim(),
-      syllabus_id: syllabus.id || undefined,
-      syllabus_text: syllabus.extracted_text || undefined,
-      selected_units: selectedUnits,
-      total_marks: Number(totalMarks),
-      question_count: Number(questionCount),
-      question_types: questionTypes,
-      difficulty: difficulty,
-      blooms_levels: selectedBlooms.length > 0 ? selectedBlooms : undefined,
-      college_name: collegeName,
-      exam_name: examName,
-      semester: semester,
-      paper_code: paperCode,
-      duration: duration,
-      instructions: instructions,
-    };
-
-    // Save configuration in state
-    onConfigChange(currentConfig);
-
     setLoading(true);
+
     try {
-      // 1. Call Question Generation API
-      const genResponse = await generateQuestionPaper({
-        subject_name: currentConfig.subject_name,
-        syllabus_id: currentConfig.syllabus_id,
-        syllabus_text: currentConfig.syllabus_text,
-        selected_units: currentConfig.selected_units,
-        total_marks: currentConfig.total_marks,
-        question_count: currentConfig.question_count,
-        question_types: currentConfig.question_types,
-        difficulty: currentConfig.difficulty,
-        blooms_levels: currentConfig.blooms_levels,
+      const response = await generateQuestionPaper({
+        subject_name: subjectName.trim(),
+        syllabus_text:
+          uploadedSyllabus?.extracted_text ||
+          `Course: ${subjectName}\n${selectedUnits.join("\n")}`,
+        selected_units: selectedUnits,
+        total_marks: Number(totalMarks),
+        question_count: Number(questionCount),
+        question_types: questionTypes,
+        difficulty: difficulty,
       });
 
-      // 2. Automatically validate initial questions
-      const valResponse = await validateQuestionPaper({
-        subject_name: currentConfig.subject_name,
-        syllabus_text: syllabus.extracted_text,
-        selected_units: currentConfig.selected_units,
-        questions: genResponse.questions,
-        total_marks: currentConfig.total_marks,
-        question_count: currentConfig.question_count,
-      });
+      // Save to local recent papers list so dashboard displays it
+      const newPaper = {
+        id: "paper_" + Date.now(),
+        subject_name: subjectName.trim(),
+        filename: uploadedSyllabus?.filename || "syllabus.pdf",
+        date: new Date().toISOString(),
+        questions_count: Number(questionCount),
+        total_marks: Number(totalMarks),
+        status: "Approved",
+        questions: response.questions,
+      };
 
-      onGenerationComplete({
-        questions: genResponse.questions,
-        generationMode: genResponse.generation_mode,
-        generationMessage: genResponse.message,
-        validationReport: valResponse,
-      });
+      const existing = JSON.parse(
+        localStorage.getItem("blindpaper_recent_papers") || "[]"
+      );
+      localStorage.setItem(
+        "blindpaper_recent_papers",
+        JSON.stringify([newPaper, ...existing])
+      );
 
-      goTo("question_review");
+      setSuccessMsg(
+        `Question paper generated successfully for "${subjectName}" with ${response.questions.length} questions!`
+      );
+
+      if (onGenerationComplete) {
+        onGenerationComplete(newPaper);
+      }
     } catch (err) {
-      setError(err.message || "Failed to generate questions.");
+      setError(err.message || "Failed to generate question paper.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="workflow-container">
-      <div className="workflow-breadcrumbs">
+    <div className="clean-page-wrapper">
+      <div className="clean-page-header">
         <button
-          className="breadcrumb-btn"
-          onClick={() => goTo("syllabus_review")}
+          className="clean-back-btn"
+          onClick={() => goTo("upload_pdf")}
           type="button"
         >
-          ← Back to Syllabus Structure
+          ← Back to Upload
         </button>
-        <span className="breadcrumb-step">Step 3 of 4: Examination Configuration</span>
+        <span className="clean-step-badge">Step 2: Paper Configuration</span>
       </div>
 
-      <div className="workflow-card">
-        <div className="card-header">
-          <span className="card-eyebrow">BLUEPRINT & PARAMETERS</span>
-          <h2>Configure Question Paper</h2>
-          <p className="card-desc">
-            Define syllabus coverage, marks allocation, question distribution,
-            and cognitive difficulty before AI generates your examination questions.
+      <div className="clean-card">
+        <div className="clean-card-title-group">
+          <h1>Paper Configuration</h1>
+          <p>
+            Provide your paper parameters to generate structured examination questions.
           </p>
         </div>
 
         {error && (
-          <div className="alert-box alert-error">
-            <span className="alert-icon">⚠️</span>
-            <div className="alert-body">
-              <strong>Configuration Error</strong>
-              <p>{error}</p>
-            </div>
+          <div className="clean-alert-error">
+            <span>⚠️ {error}</span>
           </div>
         )}
 
-        <div className="config-grid">
-          {/* Left Column: Core Parameters */}
-          <div className="config-column">
-            <div className="config-field">
-              <label className="field-label" htmlFor="paper-subject-input">
-                Course / Subject Title:
-                <input
-                  id="paper-subject-input"
-                  type="text"
-                  className="text-input"
-                  value={subjectName}
-                  onChange={(e) => setSubjectName(e.target.value)}
-                  placeholder="e.g. Data Structures & Algorithms"
-                  required
-                />
+        {successMsg && (
+          <div className="clean-alert-success">
+            <span>✓ {successMsg}</span>
+            <button
+              className="alert-link-btn"
+              onClick={() => goTo("dashboard")}
+              type="button"
+            >
+              Go to Dashboard →
+            </button>
+          </div>
+        )}
+
+        <div className="simple-config-form">
+          {/* 1. Subject Name */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="config-subject-name">
+              Subject / Course Title:
+            </label>
+            <input
+              id="config-subject-name"
+              type="text"
+              className="clean-input"
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              placeholder="e.g. Data Structures and Algorithms"
+              required
+            />
+          </div>
+
+          {/* 2. Units to Cover */}
+          <div className="form-group">
+            <div className="form-label-row">
+              <label className="form-label">Syllabus Units to Include:</label>
+              <span className="form-hint">
+                ({selectedUnits.length} of {defaultUnits.length} selected)
+              </span>
+            </div>
+
+            <div className="units-clean-checklist">
+              {defaultUnits.map((unit, idx) => {
+                const isChecked = selectedUnits.includes(unit);
+                return (
+                  <label
+                    key={idx}
+                    className={`unit-clean-item ${isChecked ? "active" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleToggleUnit(unit)}
+                    />
+                    <span>{unit}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. Marks & Question Count Row */}
+          <div className="form-row-two">
+            <div className="form-group">
+              <label className="form-label" htmlFor="config-total-marks">
+                Total Marks:
               </label>
+              <input
+                id="config-total-marks"
+                type="number"
+                className="clean-input"
+                min="1"
+                max="500"
+                value={totalMarks}
+                onChange={(e) =>
+                  setTotalMarks(Math.max(1, parseInt(e.target.value, 10) || 1))
+                }
+                required
+              />
             </div>
 
-            <div className="config-row-two">
-              <div className="config-field">
-                <label className="field-label" htmlFor="total-marks-input">
-                  Total Marks:
-                  <input
-                    id="total-marks-input"
-                    type="number"
-                    className="text-input"
-                    min="1"
-                    max="500"
-                    value={totalMarks}
-                    onChange={(e) => setTotalMarks(Math.max(1, Number(e.target.value)))}
-                    required
-                  />
-                </label>
-              </div>
-
-              <div className="config-field">
-                <label className="field-label" htmlFor="question-count-input">
-                  Number of Questions:
-                  <input
-                    id="question-count-input"
-                    type="number"
-                    className="text-input"
-                    min="1"
-                    max="100"
-                    value={questionCount}
-                    onChange={(e) =>
-                      setQuestionCount(Math.max(1, Number(e.target.value)))
-                    }
-                    required
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="config-field">
-              <label className="field-label" htmlFor="difficulty-select">
-                Overall Paper Difficulty:
-                <select
-                  id="difficulty-select"
-                  className="select-input"
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value)}
-                >
-                  <option value="easy">Easy (Foundational & Definitions)</option>
-                  <option value="medium">Medium (Standard College Exam)</option>
-                  <option value="hard">Hard (Advanced & Critical Thinking)</option>
-                  <option value="mixed">Mixed (Balanced Easy, Medium, Hard)</option>
-                </select>
+            <div className="form-group">
+              <label className="form-label" htmlFor="config-question-count">
+                Number of Questions:
               </label>
+              <input
+                id="config-question-count"
+                type="number"
+                className="clean-input"
+                min="1"
+                max="100"
+                value={questionCount}
+                onChange={(e) =>
+                  setQuestionCount(
+                    Math.max(1, parseInt(e.target.value, 10) || 1)
+                  )
+                }
+                required
+              />
+            </div>
+          </div>
+
+          {/* 4. Difficulty & Question Formats Row */}
+          <div className="form-row-two">
+            <div className="form-group">
+              <label className="form-label" htmlFor="config-difficulty">
+                Difficulty Level:
+              </label>
+              <select
+                id="config-difficulty"
+                className="clean-select"
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+              >
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+                <option value="mixed">Mixed</option>
+              </select>
             </div>
 
-            <div className="config-field">
-              <span className="field-label">Question Formats Desired:</span>
-              <div className="checkboxes-row">
-                {QUESTION_TYPES.map((type) => (
-                  <label key={type} className="checkbox-label">
+            <div className="form-group">
+              <label className="form-label">Question Types:</label>
+              <div className="types-clean-checklist">
+                {["Short Answer", "Long Answer", "MCQ"].map((type) => (
+                  <label key={type} className="type-clean-item">
                     <input
                       type="checkbox"
                       checked={questionTypes.includes(type)}
@@ -308,220 +281,35 @@ export function PaperConfig({
                 ))}
               </div>
             </div>
-
-            <div className="config-field">
-              <span className="field-label">Bloom's Taxonomy Target Focus:</span>
-              <div className="blooms-pills-group">
-                {ALL_BLOOMS.map((level) => {
-                  const isChecked = selectedBlooms.includes(level);
-                  return (
-                    <button
-                      type="button"
-                      key={level}
-                      className={`blooms-chip-btn ${isChecked ? "active" : ""}`}
-                      onClick={() => handleToggleBloom(level)}
-                    >
-                      {isChecked ? "✓ " : ""}{level}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
 
-          {/* Right Column: Units Selection */}
-          <div className="config-column">
-            <div className="unit-selection-card">
-              <div className="unit-selection-header">
-                <div>
-                  <strong>Syllabus Units to Cover</strong>
-                  <span className="selection-counter">
-                    ({selectedUnits.length} of {units.length} selected)
-                  </span>
-                </div>
-                <div className="bulk-selection-links">
-                  <button
-                    type="button"
-                    className="text-link"
-                    onClick={handleSelectAllUnits}
-                  >
-                    Select All
-                  </button>
-                  <span>•</span>
-                  <button
-                    type="button"
-                    className="text-link"
-                    onClick={handleDeselectAllUnits}
-                  >
-                    Clear All
-                  </button>
-                </div>
-              </div>
+          {/* Action Row */}
+          <div className="clean-actions-row">
+            <button
+              className="primary-button"
+              onClick={handleGenerate}
+              disabled={loading}
+              type="button"
+            >
+              {loading ? (
+                <span className="spinner-btn-wrap">
+                  <span className="spinner"></span>
+                  Generating Questions...
+                </span>
+              ) : (
+                "Generate Question Paper →"
+              )}
+            </button>
 
-              <div className="units-checkbox-list">
-                {units.length === 0 ? (
-                  <p className="no-units-msg">No units parsed from syllabus.</p>
-                ) : (
-                  units.map((unit, idx) => {
-                    const isChecked = selectedUnits.includes(unit.unit_name);
-                    return (
-                      <label
-                        key={idx}
-                        className={`unit-checkbox-item ${isChecked ? "checked" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleUnit(unit.unit_name)}
-                        />
-                        <div className="unit-checkbox-details">
-                          <span className="unit-label-text">{unit.unit_name}</span>
-                          <span className="unit-topics-count">
-                            {unit.topics?.length || 0} topics
-                          </span>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            <button
+              className="secondary-button"
+              onClick={() => goTo("dashboard")}
+              disabled={loading}
+              type="button"
+            >
+              Dashboard
+            </button>
           </div>
-        </div>
-
-        {/* Optional Examination Header Metadata Accordion */}
-        <div className="metadata-section">
-          <button
-            type="button"
-            className="accordion-toggle"
-            onClick={() => setShowMetadata(!showMetadata)}
-          >
-            <span>{showMetadata ? "▼ Examination PDF Header Details" : "▶ Examination PDF Header Details (Optional)"}</span>
-            <span className="toggle-hint">College name, paper code, semester, instructions</span>
-          </button>
-
-          {showMetadata && (
-            <div className="metadata-fields-grid">
-              <div className="config-field">
-                <label className="field-label" htmlFor="college-name-input">
-                  College / University Name:
-                  <input
-                    id="college-name-input"
-                    type="text"
-                    className="text-input"
-                    value={collegeName}
-                    onChange={(e) => setCollegeName(e.target.value)}
-                    placeholder="e.g. National Institute of Technology"
-                  />
-                </label>
-              </div>
-
-              <div className="config-field">
-                <label className="field-label" htmlFor="exam-name-input">
-                  Examination Title:
-                  <input
-                    id="exam-name-input"
-                    type="text"
-                    className="text-input"
-                    value={examName}
-                    onChange={(e) => setExamName(e.target.value)}
-                    placeholder="e.g. End-Semester Examination"
-                  />
-                </label>
-              </div>
-
-              <div className="config-row-two">
-                <div className="config-field">
-                  <label className="field-label" htmlFor="semester-input">
-                    Academic Year / Semester:
-                    <input
-                      id="semester-input"
-                      type="text"
-                      className="text-input"
-                      value={semester}
-                      onChange={(e) => setSemester(e.target.value)}
-                      placeholder="e.g. Semester V"
-                    />
-                  </label>
-                </div>
-
-                <div className="config-field">
-                  <label className="field-label" htmlFor="paper-code-input">
-                    Paper Code:
-                    <input
-                      id="paper-code-input"
-                      type="text"
-                      className="text-input"
-                      value={paperCode}
-                      onChange={(e) => setPaperCode(e.target.value)}
-                      placeholder="e.g. CS-401"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="config-field">
-                <label className="field-label" htmlFor="duration-input">
-                  Exam Duration:
-                  <input
-                    id="duration-input"
-                    type="text"
-                    className="text-input"
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                    placeholder="e.g. 2 Hours"
-                  />
-                </label>
-              </div>
-
-              <div className="config-field">
-                <label className="field-label" htmlFor="instructions-input">
-                  Candidate Instructions (one per line):
-                  <textarea
-                    id="instructions-input"
-                    className="textarea-input"
-                    rows={3}
-                    value={instructions.join("\n")}
-                    onChange={(e) =>
-                      setInstructions(
-                        e.target.value
-                          .split("\n")
-                          .filter((line) => line.trim().length > 0)
-                      )
-                    }
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Actions */}
-        <div className="workflow-footer-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => goTo("syllabus_review")}
-            disabled={loading}
-          >
-            ← Back to Syllabus Structure
-          </button>
-
-          <button
-            type="button"
-            className="primary-button hero-button"
-            onClick={handleGenerate}
-            disabled={loading}
-          >
-            {loading ? (
-              <span className="button-spinner-row">
-                <span className="spinner"></span>
-                Generating Questions...
-              </span>
-            ) : (
-              "Generate Question Paper →"
-            )}
-          </button>
         </div>
       </div>
     </div>
