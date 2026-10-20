@@ -13,11 +13,6 @@ from app.repositories.syllabus_repository import (
     DatabaseConnectionError,
     SyllabusRepository,
 )
-from app.schemas.syllabus import (
-    StructuredSyllabus,
-    TopicStructure,
-    UnitStructure,
-)
 from app.services.syllabus_structuring_service import (
     SyllabusStructuringService,
     syllabus_structuring_service,
@@ -27,47 +22,33 @@ client = TestClient(app)
 
 SAMPLE_STRUCTURED_DATA = {
     "subject_name": "Data Structures",
+    "course_code": "CS201",
+    "course_description": "Stacks, queues and trees.",
+    "course_outcomes": [
+        {
+            "code": "CO1",
+            "description": "Explain stack and queue operations.",
+            "blooms_level": 2,
+            "blooms_descriptor": "Understand",
+        }
+    ],
+    "course_content": [
+        {
+            "unit_number": 1,
+            "unit_name": "Stacks and Queues",
+            "topics": ["Implement stack operations", "Explain queue mechanisms"],
+        },
+        {"unit_number": 2, "unit_name": "Trees", "topics": ["Design binary search tree"]},
+    ],
     "filename": "dsa.pdf",
     "page_count": 2,
     "extracted_text": "Unit 1: Stacks and Queues\nImplement stack operations.\nExplain queue mechanisms.\n\nUnit 2: Trees\nDesign binary search tree.",
-    "structured_syllabus": {
-        "units": [
-            {
-                "unit_name": "Unit 1: Stacks and Queues",
-                "topics": [
-                    {
-                        "topic_name": "Implement stack operations",
-                        "subtopics": [],
-                        "blooms_levels": ["Apply"],
-                        "blooms_confidence": "inferred",
-                    },
-                    {
-                        "topic_name": "Explain queue mechanisms",
-                        "subtopics": [],
-                        "blooms_levels": ["Understand"],
-                        "blooms_confidence": "inferred",
-                    },
-                ],
-            },
-            {
-                "unit_name": "Unit 2: Trees",
-                "topics": [
-                    {
-                        "topic_name": "Design binary search tree",
-                        "subtopics": [],
-                        "blooms_levels": ["Create"],
-                        "blooms_confidence": "inferred",
-                    }
-                ],
-            },
-        ]
-    },
     "processing_status": "reviewed",
 }
 
 
-def test_structuring_service_units_and_blooms_inference():
-    """Verify structuring service correctly extracts units and infers Bloom's levels."""
+def test_structuring_service_reads_units_and_topics():
+    """Verify the structuring service splits plain 'Unit N: Title' text into units and topics."""
     raw_text = (
         "Course: Operating Systems\n\n"
         "Unit 1: Process Management\n"
@@ -85,17 +66,16 @@ def test_structuring_service_units_and_blooms_inference():
     )
 
     assert result["subject_name"] == "Operating Systems"
-    structured = result["structured_syllabus"]
-    assert len(structured.units) == 2
-
-    unit1 = structured.units[0]
-    assert "Process Management" in unit1.unit_name
-    assert len(unit1.topics) >= 2
-
-    # Check Bloom's inference
-    topics = unit1.topics
-    assert any("Understand" in t.blooms_levels for t in topics)
-    assert any("Apply" in t.blooms_levels for t in topics)
+    units = result["course_content"]
+    assert [(u.unit_number, u.unit_name) for u in units] == [
+        (1, "Process Management"),
+        (2, "Memory Management"),
+    ]
+    assert units[0].topics == [
+        "Explain process states and life cycles",
+        "Implement CPU scheduling algorithms",
+    ]
+    assert units[1].topics == ["Evaluate page replacement policies", "Virtual memory basics"]
 
 
 def test_structure_endpoint_api():
@@ -116,9 +96,10 @@ def test_structure_endpoint_api():
     data = response.json()
 
     assert data["subject_name"] == "Database Management Systems"
-    units = data["structured_syllabus"]["units"]
+    units = data["course_content"]
     assert len(units) == 1
-    assert "Relational Models" in units[0]["unit_name"]
+    assert units[0]["unit_name"] == "Relational Models"
+    assert units[0]["topics"] == ["Define relational algebra", "Design entity relationship diagrams"]
 
 
 def test_repository_crud_operations():

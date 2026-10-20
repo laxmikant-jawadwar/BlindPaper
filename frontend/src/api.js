@@ -51,6 +51,31 @@ export async function uploadSyllabusFile(file) {
 }
 
 /**
+ * Upload a syllabus PDF and run it through extraction, structuring and storage in
+ * MongoDB in one call. Resolves to the stored syllabus document, including its ID.
+ */
+export async function processSyllabus(file, subjectName) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (subjectName) {
+    formData.append("subject_name", subjectName);
+  }
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/api/syllabus/process`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    throw new Error(
+      `Cannot reach the BlindPaper server at ${API_BASE}. Check that the backend is running.`
+    );
+  }
+  return handleResponse(response);
+}
+
+/**
  * Parse raw extracted syllabus text into structured units and Bloom's Taxonomy levels
  */
 export async function structureSyllabusText({ extracted_text, subject_name, filename, page_count }) {

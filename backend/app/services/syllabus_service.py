@@ -3,9 +3,13 @@ Syllabus extraction service using PyMuPDF.
 Responsible for reading, validating, and extracting text from uploaded syllabus PDFs.
 """
 
-from typing import Any, Dict
+import io
+import logging
+from typing import Any, Dict, List
+import pdfplumber
 import pymupdf
 
+logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB limit
 
@@ -90,7 +94,9 @@ class SyllabusService:
             extracted_chunks = []
             for page_index in range(page_count):
                 page = doc.load_page(page_index)
-                page_text = page.get_text("text")
+                # sort=True reads top-to-bottom, left-to-right. Table-based syllabi draw their
+                # cells out of order, which otherwise detaches unit titles from their content.
+                page_text = page.get_text("text", sort=True)
                 if page_text and page_text.strip():
                     extracted_chunks.append(page_text.strip())
 
@@ -108,10 +114,31 @@ class SyllabusService:
                 "filename": filename,
                 "page_count": page_count,
                 "extracted_text": full_text,
+                "tables": self._extract_tables(file_bytes),
             }
         finally:
             if doc is not None:
                 doc.close()
+
+    @staticmethod
+    def _extract_tables(file_bytes: bytes) -> List[List[List[str]]]:
+        """
+        Extract ruled tables (course outcomes, CO-PO grid) as rows of cell text.
+
+        pdfplumber is used because PyMuPDF's table finder misses the CO-PO grid in some
+        syllabi and strips the spaces out of cell text. A failure here must never cost the
+        faculty the plain text, so it only logs.
+        """
+        try:
+            tables: List[List[List[str]]] = []
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    for table in page.extract_tables():
+                        tables.append([[" ".join((cell or "").split()) for cell in row] for row in table])
+            return tables
+        except Exception:
+            logger.warning("Table extraction failed; continuing with text only", exc_info=True)
+            return []
 
 
 # Default singleton service instance
