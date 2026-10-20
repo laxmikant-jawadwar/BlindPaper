@@ -38,6 +38,21 @@ def get_syllabus_collection() -> Collection:
     return get_database()["syllabi"]
 
 
+def get_users_collection() -> Collection:
+    """Retrieve the 'users' collection (faculty and admin accounts)."""
+    return get_database()["users"]
+
+
+def get_sessions_collection() -> Collection:
+    """Retrieve the 'sessions' collection (login sessions, stored by token hash)."""
+    return get_database()["sessions"]
+
+
+def get_papers_collection() -> Collection:
+    """Retrieve the 'papers' collection (generated and submitted question papers)."""
+    return get_database()["papers"]
+
+
 def check_database_connection() -> bool:
     """
     Check if the MongoDB server is reachable without exposing credentials.
@@ -61,17 +76,3 @@ def close_database_connection() -> None:
         except Exception as err:
             logger.warning(f"Error closing MongoDB connection: {err}")
         _client = None
-
-
-def __getattr__(name: str):
-    """
-    Provide backward compatibility for code expecting top-level module attributes
-    `client`, `database`, or `syllabus_collection`.
-    """
-    if name == "client":
-        return get_mongo_client()
-    if name == "database":
-        return get_database()
-    if name == "syllabus_collection":
-        return get_syllabus_collection()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

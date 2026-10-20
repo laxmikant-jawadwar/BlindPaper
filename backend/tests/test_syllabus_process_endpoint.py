@@ -1,21 +1,17 @@
 """
-POST /api/syllabus/process: upload a PDF, extract its text and tables, structure it and store
-both representations in MongoDB (application flow, steps 1-4).
+Uploading a syllabus PDF (application workflow, step 2): the PDF is extracted, structured and
+stored in MongoDB under the faculty member who uploaded it. Faculty only ever see their own.
 """
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pymupdf
 import pytest
-from fastapi.testclient import TestClient
+from bson import ObjectId
 
-from app.main import app
-from app.repositories.syllabus_repository import DatabaseConnectionError
+from app.repositories.errors import DatabaseConnectionError
+from app.repositories.syllabus_repository import syllabus_repository
 
-client = TestClient(app)
-
-FAKE_ID = "507f1f77bcf86cd799439011"
 SAMPLE_PDF = Path(__file__).resolve().parents[2] / "sample" / "OR Syllabus.pdf"
 
 SYLLABUS_LINES = [
@@ -60,34 +56,29 @@ def make_pdf(lines: list[str], table: list[list[str]] | None = None) -> bytes:
     return pdf_bytes
 
 
-def stored_like_mongo(document: dict) -> dict:
-    """What SyllabusRepository.create returns: the document plus id and timestamps."""
-    return {
-        **document,
-        "id": FAKE_ID,
-        "created_at": "2026-10-20T10:00:00+00:00",
-        "updated_at": "2026-10-20T10:00:00+00:00",
-    }
-
-
-def post_pdf(pdf_bytes: bytes, filename: str = "ds.pdf", **form):
+def post_pdf(client, pdf_bytes: bytes, headers=None, filename: str = "ds.pdf", **form):
     return client.post(
         "/api/syllabus/process",
         files={"file": (filename, pdf_bytes, "application/pdf")},
         data=form,
+        headers=headers or {},
     )
 
 
-def test_process_stores_raw_text_and_the_structured_syllabus_and_returns_the_id():
+def test_only_a_signed_in_faculty_member_can_upload_a_syllabus(client, admin):
+    pdf = make_pdf(SYLLABUS_LINES)
+
+    assert post_pdf(client, pdf).status_code == 401
+    assert post_pdf(client, pdf, headers=admin["headers"]).status_code == 403
+
+
+def test_process_stores_raw_text_and_the_structured_syllabus_for_the_uploader(client, faculty, fake_mongo):
     pdf_bytes = make_pdf(SYLLABUS_LINES, OUTCOME_TABLE)
 
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        repo.create.side_effect = stored_like_mongo
-        response = post_pdf(pdf_bytes)
+    response = post_pdf(client, pdf_bytes, headers=faculty["headers"])
 
     assert response.status_code == 201
     body = response.json()
-    assert body["id"] == FAKE_ID
     assert body["subject_name"] == "Data Structures"
     assert body["course_code"] == "CS201"
     assert body["course_description"] == "Stacks, queues and trees for beginners"
@@ -100,103 +91,105 @@ def test_process_stores_raw_text_and_the_structured_syllabus_and_returns_the_id(
     ]
     assert body["processing_status"] == "structured"
 
-    stored = repo.create.call_args.args[0]
-    assert "Unit 1: Stacks and Queues" in stored["extracted_text"]  # raw text is kept
-    assert stored["course_content"][0]["topics"] == ["Introduction to stacks", "Queue operations"]  # plain dicts
-    assert stored["course_outcomes"][0]["code"] == "CO1"
-    assert stored["filename"] == "ds.pdf"
-    assert stored["page_count"] == 1
-    assert stored["file_size_bytes"] == len(pdf_bytes)
-    assert stored["processing_status"] == "structured"
+    stored = fake_mongo["blindpaper"]["syllabi"].find_one({"_id": ObjectId(body["id"])})
+    assert stored["owner_id"] == faculty["user"]["id"]
+    assert "Unit 1: Stacks and Queues" in stored["extracted_text"]  # the raw text is kept
+    assert stored["filename"] == "ds.pdf" and stored["page_count"] == 1 and stored["file_size_bytes"] == len(pdf_bytes)
     # Only the wanted parts of the syllabus are stored
     assert not {"structured_syllabus", "objectives", "co_po_mapping", "prerequisites", "tables"} & set(stored)
 
 
-def test_process_lets_the_faculty_override_the_subject_name():
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        repo.create.side_effect = stored_like_mongo
-        response = post_pdf(make_pdf(SYLLABUS_LINES), subject_name="Advanced Data Structures")
+def test_process_lets_the_faculty_override_the_subject_name(client, faculty):
+    response = post_pdf(client, make_pdf(SYLLABUS_LINES), headers=faculty["headers"], subject_name="Advanced Data Structures")
 
     assert response.status_code == 201
     assert response.json()["subject_name"] == "Advanced Data Structures"
-    assert repo.create.call_args.args[0]["subject_name"] == "Advanced Data Structures"
 
 
-def test_process_marks_a_pdf_without_unit_headings_as_extracted():
+def test_process_marks_a_pdf_without_unit_headings_as_extracted(client, faculty):
     pdf_bytes = make_pdf(["Some free text about nothing in particular.", "It has no units at all."])
 
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        repo.create.side_effect = stored_like_mongo
-        response = post_pdf(pdf_bytes, filename="free_text.pdf")
+    response = post_pdf(client, pdf_bytes, headers=faculty["headers"], filename="free_text.pdf")
 
     assert response.status_code == 201
     assert response.json()["processing_status"] == "extracted"
     assert response.json()["course_content"] == []
-    assert repo.create.call_args.args[0]["processing_status"] == "extracted"
 
 
-def test_process_rejects_non_pdf_files_without_touching_the_database():
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        response = client.post(
-            "/api/syllabus/process",
-            files={"file": ("syllabus.txt", b"Plain text syllabus", "text/plain")},
-        )
+def test_process_rejects_non_pdf_files_and_stores_nothing(client, faculty, fake_mongo):
+    response = client.post(
+        "/api/syllabus/process",
+        files={"file": ("syllabus.txt", b"Plain text syllabus", "text/plain")},
+        headers=faculty["headers"],
+    )
 
     assert response.status_code == 400
     assert "Only PDF files (.pdf) are accepted" in response.json()["detail"]
-    repo.create.assert_not_called()
+    assert fake_mongo["blindpaper"]["syllabi"].count_documents({}) == 0
 
 
-def test_process_asks_for_ocr_on_scanned_pdfs_and_stores_nothing():
+def test_process_asks_for_ocr_on_scanned_pdfs_and_stores_nothing(client, faculty, fake_mongo):
     doc = pymupdf.open()
     doc.new_page()
     blank_pdf = doc.tobytes()
     doc.close()
 
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        response = post_pdf(blank_pdf, filename="scan.pdf")
+    response = post_pdf(client, blank_pdf, headers=faculty["headers"], filename="scan.pdf")
 
     assert response.status_code == 400
     assert "ocr" in response.json()["detail"].lower()
-    repo.create.assert_not_called()
+    assert fake_mongo["blindpaper"]["syllabi"].count_documents({}) == 0
 
 
-def test_process_reports_503_when_mongodb_is_unavailable():
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        repo.create.side_effect = DatabaseConnectionError("connection refused")
-        response = post_pdf(make_pdf(SYLLABUS_LINES))
+def test_process_reports_503_when_mongodb_is_unavailable(client, faculty, monkeypatch):
+    def refuse(_document):
+        raise DatabaseConnectionError("connection refused")
+
+    monkeypatch.setattr(syllabus_repository, "create", refuse)
+
+    response = post_pdf(client, make_pdf(SYLLABUS_LINES), headers=faculty["headers"])
 
     assert response.status_code == 503
     assert "MongoDB" in response.json()["detail"]
 
 
-def test_structure_endpoint_returns_the_same_shape():
-    response = client.post(
-        "/api/syllabus/structure",
-        json={"extracted_text": "\n".join(SYLLABUS_LINES), "filename": "ds.pdf", "page_count": 1},
-    )
+def test_faculty_only_see_their_own_syllabi(client, faculty, other_faculty):
+    mine = post_pdf(client, make_pdf(SYLLABUS_LINES), headers=faculty["headers"]).json()
+    theirs = post_pdf(client, make_pdf(SYLLABUS_LINES), headers=other_faculty["headers"], subject_name="Not Mine").json()
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["subject_name"] == "Data Structures"
-    assert body["course_code"] == "CS201"
-    assert body["course_description"] == "Stacks, queues and trees for beginners"
-    assert [(u["unit_number"], u["unit_name"]) for u in body["course_content"]] == [(1, "Stacks and Queues"), (2, "Trees")]
-    assert body["processing_status"] == "structured"
+    listed = client.get("/api/syllabus", headers=faculty["headers"]).json()
+    assert [item["id"] for item in listed] == [mine["id"]]
+    assert listed[0]["unit_count"] == 2
+
+    assert client.get(f"/api/syllabus/{mine['id']}", headers=faculty["headers"]).status_code == 200
+    # someone else's syllabus looks exactly like one that does not exist
+    assert client.get(f"/api/syllabus/{theirs['id']}", headers=faculty["headers"]).status_code == 404
+    assert client.delete(f"/api/syllabus/{theirs['id']}", headers=faculty["headers"]).status_code == 404
+
+
+def test_syllabus_endpoints_need_a_login(client):
+    assert client.get("/api/syllabus").status_code == 401
+    assert client.get("/api/syllabus/507f1f77bcf86cd799439011").status_code == 401
+    assert client.delete("/api/syllabus/507f1f77bcf86cd799439011").status_code == 401
+
+
+def test_a_syllabus_can_be_deleted_by_its_owner(client, faculty):
+    created = post_pdf(client, make_pdf(SYLLABUS_LINES), headers=faculty["headers"]).json()
+
+    assert client.delete(f"/api/syllabus/{created['id']}", headers=faculty["headers"]).status_code == 200
+    assert client.get(f"/api/syllabus/{created['id']}", headers=faculty["headers"]).status_code == 404
 
 
 @pytest.mark.skipif(not SAMPLE_PDF.exists(), reason="sample OR syllabus PDF is not present in sample/")
-def test_process_stores_the_real_operations_research_syllabus():
-    with patch("app.api.routes.syllabus.syllabus_repository") as repo:
-        repo.create.side_effect = stored_like_mongo
-        response = post_pdf(SAMPLE_PDF.read_bytes(), filename="OR Syllabus.pdf")
+def test_process_stores_the_real_operations_research_syllabus(client, faculty):
+    response = post_pdf(client, SAMPLE_PDF.read_bytes(), headers=faculty["headers"], filename="OR Syllabus.pdf")
 
     assert response.status_code == 201
-    stored = repo.create.call_args.args[0]
-    assert stored["subject_name"] == "Operations Research"
-    assert stored["course_code"] == "UCBEM0404"
-    assert [o["code"] for o in stored["course_outcomes"]] == ["CO1", "CO2", "CO3", "CO4"]
-    assert [(u["unit_number"], u["unit_name"]) for u in stored["course_content"]] == [
+    body = response.json()
+    assert body["subject_name"] == "Operations Research"
+    assert body["course_code"] == "UCBEM0404"
+    assert [o["code"] for o in body["course_outcomes"]] == ["CO1", "CO2", "CO3", "CO4"]
+    assert [(u["unit_number"], u["unit_name"]) for u in body["course_content"]] == [
         (1, "Linear Programming Problems"),
         (2, "Inventory Control"),
         (3, "Network Models"),

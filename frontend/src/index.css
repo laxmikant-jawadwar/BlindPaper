@@ -1,10 +1,46 @@
+@import "tailwindcss";
 
-/* Global reset and page defaults are defined in App.css. */
-html {
-  min-width: 320px;
-  min-height: 100%;
+/* BlindPaper design tokens, sampled from the reference screens */
+@theme {
+  --font-sans: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+
+  --color-sidebar: #142034;
+  --color-sidebar-hover: #1e2d48;
+  --color-canvas: #f3f7fe;
+  --color-brand: #2563eb;
+  --color-brand-dark: #1d4fd8;
+  --color-ink: #0f1b33;
+
+  /* tinted cards and badges */
+  --color-tint-blue: #ebf3fe;
+  --color-tint-blue-strong: #deebfd;
+  --color-tint-orange: #fef5e8;
+  --color-tint-orange-strong: #fff1d7;
+  --color-tint-green: #e9f7ed;
+  --color-tint-green-strong: #d6f0dd;
+  --color-tint-red: #ffeaed;
+  --color-tint-red-strong: #fde0e3;
 }
 
-body {
-  min-height: 100vh;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }

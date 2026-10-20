@@ -1,27 +1,18 @@
 """
-API endpoints for syllabus file uploads, text extraction, structuring,
-and MongoDB persistence.
+Syllabus endpoints (application workflow, step 2): upload a PDF, have it extracted and
+structured, and keep it in MongoDB under the faculty member who uploaded it.
 """
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
-from app.repositories.syllabus_repository import (
-    DatabaseConnectionError,
-    syllabus_repository,
-)
-from app.schemas.syllabus import (
-    SyllabusCreateRequest,
-    SyllabusDocumentResponse,
-    SyllabusExtractResponse,
-    SyllabusStructureRequest,
-    SyllabusStructureResponse,
-    SyllabusSummaryResponse,
-    SyllabusUpdateRequest,
-)
+from app.api.deps import require_faculty
+from app.repositories.errors import DatabaseConnectionError
+from app.repositories.syllabus_repository import syllabus_repository
+from app.schemas.syllabus import SyllabusDocumentResponse, SyllabusSummaryResponse
 from app.services.syllabus_service import (
     EmptyFileError,
     FileSizeLimitExceededError,
@@ -35,22 +26,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/syllabus", tags=["Syllabus"])
 
-MAX_ALLOWED_SIZE = 10 * 1024 * 1024  # 10 MB
+
+def _db_unavailable(err: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"MongoDB service is unavailable: {err}",
+    )
 
 
 async def _read_and_extract(file: UploadFile) -> Tuple[bytes, Dict[str, Any]]:
     """
-    Validate an uploaded syllabus PDF and extract its text.
+    Validate an uploaded syllabus PDF and extract its text and tables.
     Returns the raw bytes and the extraction result; service errors become HTTP errors.
     """
-    # 1. Validate filename exists and has .pdf extension
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file format. Only PDF files (.pdf) are accepted.",
         )
 
-    # 2. Read file contents safely
     try:
         contents = await file.read()
     except Exception:
@@ -59,33 +53,14 @@ async def _read_and_extract(file: UploadFile) -> Tuple[bytes, Dict[str, Any]]:
             detail="Failed to read the uploaded file stream.",
         )
 
-    # 3. Process and extract text using the syllabus service
     try:
-        result = syllabus_service.extract_text_from_pdf_bytes(
-            file_bytes=contents,
-            filename=file.filename,
-        )
-    except EmptyFileError as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(err),
-        )
+        result = syllabus_service.extract_text_from_pdf_bytes(file_bytes=contents, filename=file.filename)
     except FileSizeLimitExceededError as err:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=str(err),
-        )
-    except InvalidPDFError as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(err),
-        )
-    except OCRRequiredError as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(err),
-        )
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(err))
+    except (EmptyFileError, InvalidPDFError, OCRRequiredError) as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
     except Exception:
+        logger.exception("Unexpected error extracting syllabus '%s'", file.filename)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while processing the syllabus PDF.",
@@ -94,29 +69,8 @@ async def _read_and_extract(file: UploadFile) -> Tuple[bytes, Dict[str, Any]]:
     return contents, result
 
 
-@router.post(
-    "/upload",
-    response_model=SyllabusExtractResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Upload and extract text from syllabus PDF",
-    description="Upload a syllabus PDF file (up to 10 MB) to extract and return its raw text.",
-)
-async def upload_syllabus(
-    file: UploadFile = File(..., description="Syllabus PDF file"),
-) -> SyllabusExtractResponse:
-    """
-    Handle syllabus PDF upload, validation, and PyMuPDF text extraction.
-    """
-    _, result = await _read_and_extract(file)
-    return SyllabusExtractResponse(
-        filename=result["filename"],
-        page_count=result["page_count"],
-        extracted_text=result["extracted_text"],
-    )
-
-
 def _structure_and_store(
-    contents: bytes, extracted: Dict[str, Any], subject_name: Optional[str]
+    owner_id: str, contents: bytes, extracted: Dict[str, Any], subject_name: Optional[str]
 ) -> Dict[str, Any]:
     """Structure the extracted text and persist both representations in MongoDB."""
     structured = syllabus_structuring_service.structure_syllabus_text(
@@ -128,6 +82,7 @@ def _structure_and_store(
     )
     return syllabus_repository.create(
         {
+            "owner_id": owner_id,
             # The structured syllabus: only the parts BlindPaper uses
             "subject_name": structured["subject_name"],
             "course_code": structured["course_code"],
@@ -150,29 +105,26 @@ def _structure_and_store(
     status_code=status.HTTP_201_CREATED,
     summary="Upload a syllabus PDF, structure it and store it in MongoDB",
     description=(
-        "Runs the first part of the BlindPaper flow in one call: extracts the PDF text, "
-        "structures it into units and topics, and stores the raw text, the structured "
-        "syllabus and the file metadata under a new syllabus ID."
+        "Extracts the PDF text and tables, structures them into course name, description, "
+        "outcomes and units with topics, and stores the raw text, the structured syllabus and "
+        "the file metadata under a new syllabus ID owned by the signed-in faculty member."
     ),
 )
 async def process_syllabus(
     file: UploadFile = File(..., description="Syllabus PDF file"),
     subject_name: Optional[str] = Form(
-        default=None, description="Optional subject name that overrides the one detected in the PDF"
+        default=None, description="Optional course name that overrides the one detected in the PDF"
     ),
+    user: Dict[str, Any] = Depends(require_faculty),
 ) -> SyllabusDocumentResponse:
-    """Extract, structure and persist an uploaded syllabus PDF."""
     contents, extracted = await _read_and_extract(file)
 
     try:
         # pymongo is blocking; keep it off the event loop
-        created = await run_in_threadpool(_structure_and_store, contents, extracted, subject_name)
+        created = await run_in_threadpool(_structure_and_store, user["id"], contents, extracted, subject_name)
         return SyllabusDocumentResponse(**created)
     except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
-        )
+        raise _db_unavailable(err)
     except Exception:
         logger.exception("Failed to structure and store syllabus '%s'", extracted["filename"])
         raise HTTPException(
@@ -181,180 +133,49 @@ async def process_syllabus(
         )
 
 
-@router.post(
-    "/structure",
-    response_model=SyllabusStructureResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Parse extracted syllabus into structured units and Bloom's levels",
-    description="Analyzes extracted syllabus text to identify units, topics, and recommended Bloom's cognitive levels.",
-)
-def structure_syllabus(request: SyllabusStructureRequest) -> SyllabusStructureResponse:
-    """Parse syllabus text and recommend Bloom's Taxonomy levels for topics."""
-    try:
-        result = syllabus_structuring_service.structure_syllabus_text(
-            extracted_text=request.extracted_text,
-            subject_name=request.subject_name,
-            filename=request.filename or "syllabus.pdf",
-            page_count=request.page_count or 1,
-        )
-        return SyllabusStructureResponse(**result)
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to structure syllabus: {err}",
-        )
-
-
-@router.post(
-    "",
-    response_model=SyllabusDocumentResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Save confirmed syllabus to MongoDB",
-    description="Persists faculty-confirmed structured syllabus and raw text in the MongoDB syllabi collection.",
-)
-def save_syllabus(request: SyllabusCreateRequest) -> SyllabusDocumentResponse:
-    """Persist confirmed syllabus document in local MongoDB."""
-    try:
-        doc_data = request.model_dump()
-        created_doc = syllabus_repository.create(doc_data)
-        return SyllabusDocumentResponse(**created_doc)
-    except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
-        )
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to persist syllabus document: {err}",
-        )
-
-
 @router.get(
     "",
     response_model=List[SyllabusSummaryResponse],
-    summary="List all saved syllabi from MongoDB",
-    description="Returns a list of saved syllabus summaries for the faculty dashboard.",
+    summary="List my saved syllabi",
 )
-def list_syllabi(limit: int = 50, skip: int = 0) -> List[SyllabusSummaryResponse]:
-    """Retrieve all saved syllabi from MongoDB."""
+def list_syllabi(limit: int = 50, skip: int = 0, user: Dict[str, Any] = Depends(require_faculty)):
     try:
-        docs = syllabus_repository.list_all(limit=limit, skip=skip)
-        summaries: List[SyllabusSummaryResponse] = []
-        for doc in docs:
-            units = doc.get("course_content", [])
-            summaries.append(
-                SyllabusSummaryResponse(
-                    id=doc.get("id", ""),
-                    subject_name=doc.get("subject_name", "Untitled Subject"),
-                    course_code=doc.get("course_code"),
-                    filename=doc.get("filename", "unknown.pdf"),
-                    page_count=doc.get("page_count", 1),
-                    unit_count=len(units),
-                    processing_status=doc.get("processing_status", "reviewed"),
-                    created_at=doc.get("created_at", ""),
-                    updated_at=doc.get("updated_at", ""),
-                )
-            )
-        return summaries
+        docs = syllabus_repository.list_for_owner(user["id"], limit=limit, skip=skip)
     except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
+        raise _db_unavailable(err)
+    return [
+        SyllabusSummaryResponse(
+            id=doc["id"],
+            subject_name=doc.get("subject_name", "Untitled Subject"),
+            course_code=doc.get("course_code"),
+            filename=doc.get("filename", "unknown.pdf"),
+            page_count=doc.get("page_count", 1),
+            unit_count=len(doc.get("course_content", [])),
+            processing_status=doc.get("processing_status", "structured"),
+            created_at=doc.get("created_at", ""),
+            updated_at=doc.get("updated_at", ""),
         )
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch syllabi from database: {err}",
-        )
+        for doc in docs
+    ]
 
 
-@router.get(
-    "/{syllabus_id}",
-    response_model=SyllabusDocumentResponse,
-    summary="Retrieve a saved syllabus by ID",
-    description="Fetches full syllabus details including structured units and extracted text.",
-)
-def get_syllabus(syllabus_id: str) -> SyllabusDocumentResponse:
-    """Retrieve single syllabus by MongoDB ObjectId string."""
+@router.get("/{syllabus_id}", response_model=SyllabusDocumentResponse, summary="One of my saved syllabi")
+def get_syllabus(syllabus_id: str, user: Dict[str, Any] = Depends(require_faculty)) -> SyllabusDocumentResponse:
     try:
-        doc = syllabus_repository.get_by_id(syllabus_id)
-        if doc is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Syllabus with ID '{syllabus_id}' not found.",
-            )
-        return SyllabusDocumentResponse(**doc)
-    except HTTPException:
-        raise
+        doc = syllabus_repository.get_by_id(syllabus_id, owner_id=user["id"])
     except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
-        )
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve syllabus '{syllabus_id}': {err}",
-        )
+        raise _db_unavailable(err)
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Syllabus '{syllabus_id}' not found.")
+    return SyllabusDocumentResponse(**doc)
 
 
-@router.put(
-    "/{syllabus_id}",
-    response_model=SyllabusDocumentResponse,
-    summary="Update an existing syllabus structure in MongoDB",
-    description="Updates subject name or structured syllabus data for a saved syllabus document.",
-)
-def update_syllabus(syllabus_id: str, request: SyllabusUpdateRequest) -> SyllabusDocumentResponse:
-    """Update syllabus details in MongoDB."""
+@router.delete("/{syllabus_id}", summary="Delete one of my saved syllabi")
+def delete_syllabus(syllabus_id: str, user: Dict[str, Any] = Depends(require_faculty)) -> Dict[str, Any]:
     try:
-        update_data = request.model_dump(exclude_unset=True)
-        updated_doc = syllabus_repository.update(syllabus_id, update_data)
-        if updated_doc is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Syllabus with ID '{syllabus_id}' not found.",
-            )
-        return SyllabusDocumentResponse(**updated_doc)
-    except HTTPException:
-        raise
+        deleted = syllabus_repository.delete(syllabus_id, owner_id=user["id"])
     except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
-        )
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update syllabus '{syllabus_id}': {err}",
-        )
-
-
-@router.delete(
-    "/{syllabus_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete a saved syllabus from MongoDB",
-    description="Removes a saved syllabus document by ID.",
-)
-def delete_syllabus(syllabus_id: str) -> dict:
-    """Delete syllabus by ID."""
-    try:
-        success = syllabus_repository.delete(syllabus_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Syllabus with ID '{syllabus_id}' not found.",
-            )
-        return {"success": True, "message": f"Syllabus '{syllabus_id}' deleted successfully."}
-    except HTTPException:
-        raise
-    except DatabaseConnectionError as err:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"MongoDB service is unavailable: {err}",
-        )
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete syllabus '{syllabus_id}': {err}",
-        )
+        raise _db_unavailable(err)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Syllabus '{syllabus_id}' not found.")
+    return {"success": True, "message": f"Syllabus '{syllabus_id}' deleted successfully."}

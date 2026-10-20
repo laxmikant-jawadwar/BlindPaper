@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+
+from app.core.config import settings
 from app.main import app
 
 client = TestClient(app)
@@ -21,7 +23,16 @@ def test_health_endpoint():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["app_name"] == "BlindPaper"
-    assert data["version"] == "0.1.0"
+    assert data["version"] == settings.app_version
+    assert data["database"] == "connected"  # the in-memory test database answers the ping
+
+
+def test_cors_lets_the_browser_read_the_download_name_and_the_retry_delay():
+    """Without this, the browser hides Content-Disposition (PDF file name) and Retry-After (rate limit wait)."""
+    response = client.get("/", headers={"Origin": "http://localhost:5173"})
+
+    exposed = response.headers.get("access-control-expose-headers", "").lower()
+    assert "content-disposition" in exposed and "retry-after" in exposed
 
 
 def test_cors_headers():
