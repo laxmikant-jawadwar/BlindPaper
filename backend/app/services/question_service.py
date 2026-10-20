@@ -100,6 +100,8 @@ class DemoQuestionGenerator:
         marks_list = distribute_marks(request.total_marks, request.question_count)
         difficulty_cycle = ["easy", "medium", "hard"] if request.difficulty.lower() == "mixed" else [request.difficulty.lower()]
 
+        blooms_cycle = request.blooms_levels if request.blooms_levels else ["Understand", "Apply", "Analyze", "Remember", "Evaluate", "Create"]
+
         questions: List[QuestionItem] = []
         for i in range(request.question_count):
             q_id = i + 1
@@ -107,6 +109,7 @@ class DemoQuestionGenerator:
             assigned_unit = matched_units[i % len(matched_units)]
             assigned_type = request.question_types[i % len(request.question_types)]
             assigned_diff = difficulty_cycle[i % len(difficulty_cycle)]
+            assigned_bloom = blooms_cycle[i % len(blooms_cycle)]
 
             # Select appropriate question text template
             type_key = assigned_type.lower()
@@ -128,6 +131,7 @@ class DemoQuestionGenerator:
                     unit_or_topic=assigned_unit,
                     marks=allocated_mark,
                     difficulty=assigned_diff,
+                    blooms_level=assigned_bloom,
                 )
             )
 
@@ -305,6 +309,18 @@ class QuestionService:
         Generate questions based on examination requirements.
         Selects LLM provider if API key exists, otherwise falls back to deterministic demo generator.
         """
+        # Resolve syllabus content from MongoDB if syllabus_id was provided
+        if not request.syllabus_text and request.syllabus_id:
+            from app.repositories.syllabus_repository import syllabus_repository
+            doc = syllabus_repository.get_by_id(request.syllabus_id)
+            if not doc:
+                raise InvalidRequirementError(
+                    f"Syllabus with ID '{request.syllabus_id}' not found in database."
+                )
+            request.syllabus_text = doc.get("extracted_text", "")
+            if not request.subject_name and doc.get("subject_name"):
+                request.subject_name = doc["subject_name"]
+
         api_key = settings.effective_api_key
 
         if api_key:

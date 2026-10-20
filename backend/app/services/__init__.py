@@ -29,6 +29,11 @@ from app.services.validation_service import (
     validation_service,
 )
 
+from app.services.syllabus_structuring_service import (
+    SyllabusStructuringService,
+    syllabus_structuring_service,
+)
+
 __all__ = [
     "SyllabusService",
     "syllabus_service",
@@ -36,6 +41,8 @@ __all__ = [
     "FileSizeLimitExceededError",
     "InvalidPDFError",
     "OCRRequiredError",
+    "SyllabusStructuringService",
+    "syllabus_structuring_service",
     "QuestionService",
     "question_service",
     "QuestionServiceError",

@@ -7,6 +7,10 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="System health status (e.g., 'healthy')")
     app_name: str = Field(..., description="Application name")
     version: str = Field(..., description="Application version")
+    database: str | None = Field(
+        default=None,
+        description="MongoDB connection status ('connected' or 'disconnected')",
+    )
 
 
 class WelcomeResponse(BaseModel):

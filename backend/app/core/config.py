@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = True
 
-    allowed_origins: str = "http://localhost:5173"
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     llm_provider: str = "gemini"
     llm_api_key: str | None = None
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     llm_model: str = "gemini-1.5-flash"
 
-    mongodb_uri: str = "mongodb://localhost:27017/"
+    mongodb_uri: str = "mongodb://127.0.0.1:27017"
     mongodb_database: str = "blindpaper"
 
     model_config = SettingsConfigDict(

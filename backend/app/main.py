@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,7 +9,21 @@ from app.api.routes.questions import router as questions_router
 from app.api.routes.syllabus import router as syllabus_router
 from app.api.routes.validation import router as validation_router
 from app.core.config import settings
+from app.database.mongodb import close_database_connection
 from app.schemas.health import WelcomeResponse
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan context manager for startup and shutdown hooks.
+    """
+    logger.info(f"Starting {settings.app_name} API v{settings.app_version}...")
+    yield
+    logger.info("Shutting down BlindPaper API and releasing database connections...")
+    close_database_connection()
 
 
 def create_application() -> FastAPI:
@@ -20,6 +36,7 @@ def create_application() -> FastAPI:
         description="Syllabus-centric AI question paper generation and validation backend.",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     # Configure Cross-Origin Resource Sharing (CORS) for frontend clients

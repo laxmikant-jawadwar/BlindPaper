@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.core.config import settings
+from app.database.mongodb import check_database_connection
 from app.schemas.health import HealthResponse
 
 router = APIRouter(prefix="/api", tags=["Health"])
@@ -12,9 +13,11 @@ router = APIRouter(prefix="/api", tags=["Health"])
     description="Returns the current operational health status of the BlindPaper backend service.",
 )
 def get_health() -> HealthResponse:
-    """Return application health status and metadata."""
+    """Return application health status and database metadata."""
+    db_ok = check_database_connection()
     return HealthResponse(
         status="healthy",
         app_name=settings.app_name,
         version=settings.app_version,
+        database="connected" if db_ok else "disconnected",
     )

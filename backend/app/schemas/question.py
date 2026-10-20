@@ -11,13 +11,24 @@ class QuestionItem(BaseModel):
     unit_or_topic: str = Field(..., description="Syllabus unit or topic the question is derived from")
     marks: int = Field(..., description="Marks allotted to this question", ge=1)
     difficulty: str = Field(..., description="Difficulty level (e.g., easy, medium, hard)")
+    blooms_level: Optional[str] = Field(
+        default=None,
+        description="Cognitive level according to Bloom's Taxonomy (e.g., Remember, Understand, Apply, Analyze, Evaluate, Create)",
+    )
 
 
 class QuestionGenerateRequest(BaseModel):
     """Schema for question generation request."""
 
     subject_name: str = Field(..., description="Name of the subject or course", min_length=1)
-    syllabus_text: str = Field(..., description="Text extracted from the syllabus PDF", min_length=10)
+    syllabus_text: Optional[str] = Field(
+        default=None,
+        description="Text extracted from the syllabus PDF (optional if syllabus_id is provided)",
+    )
+    syllabus_id: Optional[str] = Field(
+        default=None,
+        description="MongoDB ID of a previously saved syllabus",
+    )
     selected_units: List[str] = Field(
         ...,
         description="List of units or syllabus topics to include in the paper",
@@ -34,8 +45,12 @@ class QuestionGenerateRequest(BaseModel):
         default="medium",
         description="Target difficulty level (easy, medium, hard, or mixed)",
     )
+    blooms_levels: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of target Bloom's Taxonomy levels to balance",
+    )
 
-    @field_validator("subject_name", "syllabus_text", "difficulty")
+    @field_validator("subject_name", "difficulty")
     @classmethod
     def validate_non_empty_strings(cls, v: str) -> str:
         trimmed = v.strip()
@@ -58,6 +73,10 @@ class QuestionGenerateRequest(BaseModel):
                 f"total_marks ({self.total_marks}) cannot be less than question_count ({self.question_count}), "
                 "as every question must carry at least 1 mark."
             )
+        if not self.syllabus_text and not self.syllabus_id:
+            raise ValueError("Either 'syllabus_text' or 'syllabus_id' must be provided.")
+        if self.syllabus_text is not None and len(self.syllabus_text.strip()) < 10:
+            raise ValueError("syllabus_text must be at least 10 characters long.")
         return self
 
 
